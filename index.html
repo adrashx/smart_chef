@@ -9,19 +9,12 @@
 </head>
 <body class="bg-slate-800 font-['Noto_Sans'] text-slate-50 h-screen overflow-hidden flex flex-col">
 
-    <!-- Error Modal (Hidden by default) -->
+    <!-- Error Modal -->
     <div id="error-screen" class="hidden fixed inset-0 bg-red-900 z-50 flex flex-col items-center justify-center p-10 text-center">
         <svg class="w-20 h-20 text-red-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
         <h2 class="text-4xl font-black text-white mb-2">CONNECTION FAILED</h2>
-        <p class="text-red-200 text-lg mb-8 max-w-xl">Unable to fetch orders from Google Sheets. This is usually because the Script Deployment permissions are not set to "Anyone".</p>
+        <p class="text-red-200 text-lg mb-8 max-w-xl">Unable to fetch orders. Check if your internet is working or if the Script Permissions are set to 'Anyone'.</p>
         <button onclick="location.reload()" class="px-8 py-3 bg-white text-red-900 font-bold rounded-lg hover:bg-gray-200">RETRY CONNECTION</button>
-        <div class="mt-8 text-sm text-red-400 text-left bg-red-950 p-4 rounded border border-red-800">
-            <strong>Troubleshooting:</strong><br>
-            1. Go to Google Apps Script.<br>
-            2. Click Deploy > Manage Deployments > Edit.<br>
-            3. Set "Who has access" to <strong>"Anyone"</strong>.<br>
-            4. Deploy and refresh this page.
-        </div>
     </div>
 
     <!-- Header -->
@@ -35,9 +28,17 @@
                 <p class="text-xs text-blue-400 font-bold uppercase tracking-widest" id="last-updated">Last Updated: --</p>
             </div>
         </div>
-        <div class="flex items-center gap-3 bg-slate-800 px-4 py-2 rounded-lg border border-slate-700">
-            <div id="status-dot" class="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></div>
-            <span id="status-text" class="text-xs font-bold tracking-wider text-slate-400">CONNECTING...</span>
+        
+        <div class="flex items-center gap-4">
+            <button onclick="manualRefresh()" id="manual-refresh-btn" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-bold text-sm transition flex items-center gap-2 shadow-md border border-slate-600">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                REFRESH
+            </button>
+
+            <div class="flex items-center gap-3 bg-slate-800 px-4 py-2 rounded-lg border border-slate-700">
+                <div id="status-dot" class="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></div>
+                <span id="status-text" class="text-xs font-bold tracking-wider text-slate-400">CONNECTING...</span>
+            </div>
         </div>
     </header>
 
@@ -52,18 +53,36 @@
     </div>
 
     <script>
-        // STRICT NO-DEMO POLICY
+        // Your Script URL
         const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz6iECjxKAcJn7V44UD5WPw0OJ7fmDf6Ct6i50PTf479kebDfJFO7Y-GSh5KlOlIOkKfQ/exec";
         let refreshInterval = null;
+        let isUpdating = false; // Flag to pause polling during status updates
+        let isFetching = false; // Flag to prevent overlapping fetches
 
         function init() {
             fetchOrders();
-            refreshInterval = setInterval(fetchOrders, 5000); // Aggressive 5s polling for real-time feel
+            // Poll every 3 seconds (Increased speed)
+            refreshInterval = setInterval(() => {
+                if (!isUpdating && !isFetching) fetchOrders();
+            }, 3000); 
+        }
+
+        function manualRefresh() {
+            if (isFetching) return;
+            const btn = document.getElementById('manual-refresh-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = "LOADING...";
+            btn.classList.add('animate-pulse', 'opacity-75');
+            
+            fetchOrders().finally(() => {
+                btn.innerHTML = originalText;
+                btn.classList.remove('animate-pulse', 'opacity-75');
+            });
         }
 
         function fetchOrders() {
-            // Add cache buster
-            fetch(`${SCRIPT_URL}?t=${Date.now()}`)
+            isFetching = true;
+            return fetch(`${SCRIPT_URL}?t=${Date.now()}`)
                 .then(res => {
                     if (!res.ok) throw new Error("Network response was not ok");
                     return res.json();
@@ -72,12 +91,12 @@
                     const pending = data.orders.filter(o => o.status === 'Pending');
                     renderOrders(pending);
                     updateStatus('online');
+                    isFetching = false;
                 })
                 .catch(err => {
-                    console.error("CRITICAL ERROR:", err);
+                    console.error("Error:", err);
                     updateStatus('offline');
-                    clearInterval(refreshInterval); // Stop polling on hard error to prevent spamming failed requests
-                    document.getElementById('error-screen').classList.remove('hidden');
+                    isFetching = false;
                 });
         }
 
@@ -87,16 +106,14 @@
             const timeDisplay = document.getElementById('last-updated');
             
             if (status === 'online') {
-                dot.classList.replace('bg-yellow-500', 'bg-green-500');
-                dot.classList.replace('bg-red-500', 'bg-green-500');
-                text.innerText = "SYSTEM ONLINE";
-                text.classList.replace('text-slate-400', 'text-green-400');
+                dot.className = "w-3 h-3 rounded-full bg-green-500";
+                text.innerText = "ONLINE";
+                text.className = "text-xs font-bold tracking-wider text-green-400";
                 timeDisplay.innerText = "Last Updated: " + new Date().toLocaleTimeString();
             } else {
-                dot.classList.replace('bg-green-500', 'bg-red-500');
-                dot.classList.replace('bg-yellow-500', 'bg-red-500');
+                dot.className = "w-3 h-3 rounded-full bg-red-500";
                 text.innerText = "OFFLINE";
-                text.classList.replace('text-green-400', 'text-red-400');
+                text.className = "text-xs font-bold tracking-wider text-red-400";
             }
         }
 
@@ -107,24 +124,22 @@
                 container.innerHTML = `
                     <div class="col-span-full flex flex-col items-center justify-center h-96 text-slate-600 opacity-50">
                         <svg class="w-24 h-24 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        <p class="font-bold text-2xl tracking-widest">ALL CAUGHT UP</p>
+                        <p class="font-bold text-2xl tracking-widest">NO PENDING ORDERS</p>
                     </div>`;
                 return;
             }
 
-            // Sort by oldest first for FIFO (First In First Out) kitchen logic
+            // Sort: Oldest first
             orders.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
             container.innerHTML = orders.map(order => {
                 const time = new Date(order.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                // Calculate minutes elapsed
                 const elapsed = Math.floor((new Date() - new Date(order.timestamp)) / 60000);
-                const urgencyColor = elapsed > 15 ? 'bg-red-100 text-red-700 border-red-200' : 'bg-blue-50 text-blue-800 border-blue-100';
-                const urgencyBorder = elapsed > 15 ? 'border-red-500' : 'border-blue-500';
-
+                const urgencyColor = elapsed > 15 ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-800';
+                
                 return `
-                <div class="bg-white rounded-xl shadow-xl overflow-hidden flex flex-col transform transition hover:scale-105 border-t-8 ${urgencyBorder}">
-                    <div class="p-4 ${urgencyColor} flex justify-between items-center border-b">
+                <div id="card-${order.id}" class="bg-white rounded-xl shadow-xl overflow-hidden flex flex-col transform transition hover:scale-[1.02]">
+                    <div class="p-4 ${urgencyColor} flex justify-between items-center border-b border-gray-100">
                         <div>
                             <h2 class="text-3xl font-black">#${order.table}</h2>
                             <p class="text-xs font-bold uppercase opacity-75">Table No</p>
@@ -134,7 +149,7 @@
                             <p class="text-xs font-bold uppercase opacity-75">${elapsed} min ago</p>
                         </div>
                     </div>
-                    <div class="p-4 flex-1 bg-white">
+                    <div class="p-4 flex-1">
                         <ul class="space-y-3">
                         ${order.items.map(item => `
                             <li class="flex justify-between items-center border-b border-slate-100 pb-2 last:border-0">
@@ -144,7 +159,7 @@
                         `).join('')}
                         </ul>
                     </div>
-                    <button onclick="markReady('${order.id}', this)" class="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold text-xl uppercase tracking-widest transition flex items-center justify-center gap-2">
+                    <button onclick="markReady('${order.id}')" class="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold text-xl uppercase tracking-widest transition flex items-center justify-center gap-2">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
                         Ready
                     </button>
@@ -153,35 +168,40 @@
             }).join('');
         }
 
-        function markReady(id, btn) {
-            // Disable button immediately
-            btn.disabled = true;
-            btn.innerHTML = "PROCESSING...";
-            btn.classList.replace('bg-green-600', 'bg-slate-500');
+        function markReady(id) {
+            if (!id) return;
+            
+            // 1. Pause Polling so old data doesn't overwrite our change
+            isUpdating = true;
 
+            // 2. Instant Visual Feedback (Remove card immediately)
+            const card = document.getElementById(`card-${id}`);
+            if (card) {
+                card.style.transition = "all 0.3s ease";
+                card.style.opacity = "0";
+                card.style.transform = "scale(0.9)";
+                setTimeout(() => card.remove(), 300);
+            }
+
+            // 3. Send to Google
             fetch(SCRIPT_URL, {
                 method: 'POST',
                 mode: 'no-cors', 
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'update', id: id, status: 'Ready' })
             }).then(() => {
-                // Optimistic removal
-                const card = btn.closest('.bg-white');
-                card.style.opacity = '0';
-                card.style.transform = 'scale(0.9)';
+                // 4. Wait 4 seconds for Google to save, then resume polling
                 setTimeout(() => {
-                    fetchOrders(); // Refresh actual data
-                }, 500);
+                    isUpdating = false;
+                    fetchOrders(); // Get fresh list
+                }, 4000);
             }).catch(err => {
                 alert("Network Error: Could not update.");
-                btn.disabled = false;
-                btn.innerText = "RETRY";
+                isUpdating = false;
             });
         }
 
-        // Start system
         init();
     </script>
 </body>
 </html>
-
